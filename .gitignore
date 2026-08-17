@@ -1,0 +1,35 @@
+# Dependências
+node_modules/
+
+# Ambiente e secrets
+.env
+.env.local
+.env.*.local
+server.env
+*.env
+
+# Builds
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Uploads (manter apenas .gitkeep)
+uploads/*
+!uploads/.gitkeep
+
+# Prisma / DB local
+.prisma/
+prisma/migrations/dev.db
+prisma/migrations/dev.db-journal
+
+# Cobertura de testes
+coverage/
+
+# Sistema
+.DS_Store
+*.pid
+.vscode/
+.idea/

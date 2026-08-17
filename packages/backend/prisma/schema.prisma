@@ -1,0 +1,193 @@
+// ===================================================================
+// Prisma Schema - Sistema SaaS de Plásticos Injetados
+// Convertido do dump PostgreSQL (bkp.sql) para MySQL
+// ===================================================================
+// Domínios do schema completo (orquestração futura):
+//   produtos, operadores, maquinas, moldes, ordem-producao, apontamento,
+//   estoque/wms, enderecamento, separacao, checklist, chat, planejamento,
+//   manutencao, qualidade, oee, dashboard-tempo-real (socket.io)
+//
+// Nesta entrega: base + autenticação (operadores) + módulo Produtos.
+// ===================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -------------------------------------------------------------------
+// Enums
+// -------------------------------------------------------------------
+
+enum TipoOperador {
+  MontagemEmbalagem
+  Injetoras
+  Gestao
+  Desligado
+  Expedicao
+}
+
+// -------------------------------------------------------------------
+// Domínio: Autenticação / Operadores
+// -------------------------------------------------------------------
+
+model Operador {
+  id            Int            @id @default(autoincrement())
+  nome          String         @db.VarChar(100)
+  email         String?        @db.VarChar(100)
+  senha         String         @db.VarChar(255) // hash bcrypt (expandido de 100 p/ 255)
+  administrador Boolean        @default(false)
+  turno         String?        @db.VarChar(10)
+  tipoOperador  TipoOperador?  @map("tipo_operador")
+  dataCadastro  DateTime       @default(now()) @map("data_cadastro") @db.Date
+  cargo         String?        @db.VarChar(150)
+  telefone      String?        @db.VarChar(30)
+  fotoUrl       String?        @map("foto_url") @db.Text
+
+  @@map("operadores")
+}
+
+// -------------------------------------------------------------------
+// Domínio: Produtos (cadastro)
+// -------------------------------------------------------------------
+
+model Produto {
+  id                            Int      @id @default(autoincrement())
+  referenciaProduto             String   @map("referencia_produto") @db.VarChar(200)
+  dsProduto                     String   @map("ds_produto") @db.VarChar(100)
+  ean13                         String?  @db.Text
+  idOriginal                    Int?     @map("id_original")
+  idCache                       Int?     @map("id_cache")
+  tempoPadraoMontagemSegundos   Decimal? @map("tempo_padrao_montagem_segundos") @db.Decimal(12, 2)
+  tempoPadraoEmbalagemSegundos  Decimal? @map("tempo_padrao_embalagem_segundos") @db.Decimal(12, 2)
+  tempoPadraoInjecaoSegundos    Decimal? @map("tempo_padrao_injecao_segundos") @db.Decimal(12, 2)
+  pecasPorCiclo                 Decimal? @default(1) @map("pecas_por_ciclo") @db.Decimal(12, 2)
+  metaHorariaMontagem           Decimal? @map("meta_horaria_montagem") @db.Decimal(12, 2)
+  metaHorariaEmbalagem          Decimal? @map("meta_horaria_embalagem") @db.Decimal(12, 2)
+  metaHorariaInjecao            Decimal? @map("meta_horaria_injecao") @db.Decimal(12, 2)
+  updatedAt                     DateTime @default(now()) @updatedAt @map("updated_at")
+  idUnidadeCompra               Int?     @map("id_unidade_compra")
+  idUnidadeConsumo              Int?     @map("id_unidade_consumo")
+  fatorConversaoCompraConsumo   Decimal? @default(1) @map("fator_conversao_compra_consumo") @db.Decimal(10, 4)
+  tpProduto                     String?  @map("tp_produto") @db.VarChar(50)
+  vlPesobrutoProduto            Decimal? @map("vl_pesobruto_produto") @db.Decimal(15, 6)
+  subgrupoprodutoid             Decimal? @db.Decimal(8, 0)
+  grupoprodutoid                Decimal? @db.Decimal(8, 0)
+  leadTimeCompraDias            Int      @default(0) @map("lead_time_compra_dias")
+  estoqueMinimo                 Decimal  @default(0) @map("estoque_minimo") @db.Decimal(15, 6)
+  pontoPedido                   Decimal  @default(0) @map("ponto_pedido") @db.Decimal(15, 6)
+  loteCompra                    Decimal  @default(0) @map("lote_compra") @db.Decimal(15, 6)
+  ativo                         Boolean  @default(true)
+
+  // Relações (FKs lógicas - sem constraint física para flexibilidade de migração)
+  unidadeCompra  Unidade?  @relation("ProdutoUnidadeCompra",  fields: [idUnidadeCompra],  references: [id])
+  unidadeConsumo Unidade?  @relation("ProdutoUnidadeConsumo", fields: [idUnidadeConsumo], references: [id])
+
+  @@index([referenciaProduto], map: "idx_produtos_referencia")
+  @@index([tpProduto], map: "idx_produtos_tp_produto")
+  @@index([grupoprodutoid], map: "idx_produtos_grupoprodutoid")
+  @@index([subgrupoprodutoid], map: "idx_produtos_subgrupoprodutoid")
+  @@index([vlPesobrutoProduto], map: "idx_produtos_vl_pesobruto")
+  @@index([idCache], map: "idx_produtos_id_cache")
+  @@map("produtos")
+}
+
+model ProdutoIdMapping {
+  id               Int       @id @default(autoincrement())
+  idOriginal       Int       @map("id_original")
+  idCache          Int       @map("id_cache")
+  referenciaProduto String    @map("referencia_produto") @db.Text
+  dataMapeamento   DateTime  @default(now()) @map("data_mapeamento")
+  ativo            Boolean    @default(true)
+
+  @@index([idOriginal], map: "idx_produto_mapping_id_original")
+  @@index([idCache], map: "idx_produto_mapping_id_cache")
+  @@map("produto_id_mapping")
+}
+
+// -------------------------------------------------------------------
+// Domínio: Estrutura de Produtos (BOM)
+// -------------------------------------------------------------------
+
+model EstruturaProduto {
+  id                  BigInt    @id @default(autoincrement())
+  idEstruturaAworks   BigInt    @map("id_estrutura_aworks")
+  idProdutoCache      Int       @map("id_produto_cache")
+  idProdutoLocal      Int?      @map("id_produto_local")
+  idComponenteCache   Int       @map("id_componente_cache")
+  idComponenteLocal   Int?      @map("id_componente_local")
+  quantidade          Decimal   @default(0) @db.Decimal(18, 6)
+  unidade             String?   @db.Text
+  perdaPercentual     Decimal?  @map("perda_percentual") @db.Decimal(10, 4)
+  ativo               Boolean   @default(true)
+  origem              String    @default("AWORKS") @db.VarChar(20)
+  observacao          String?   @db.Text
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([idProdutoCache], map: "idx_estrutura_produto_cache")
+  @@index([idProdutoLocal], map: "idx_estrutura_produto_local")
+  @@index([idComponenteCache], map: "idx_estrutura_componente_cache")
+  @@index([idComponenteLocal], map: "idx_estrutura_componente_local")
+  @@map("estrutura_produtos")
+}
+
+// -------------------------------------------------------------------
+// Domínio: Unidades e Conversão
+// -------------------------------------------------------------------
+
+model Unidade {
+  id          Int       @id @default(autoincrement())
+  codigo      String    @db.VarChar(20)
+  descricao   String    @db.VarChar(100)
+  tipo        String    @db.VarChar(20) // entrada | saida | ambos
+  ativo       Boolean   @default(true)
+  dataCriacao DateTime  @default(now()) @map("data_criacao")
+
+  produtosCompra  Produto[] @relation("ProdutoUnidadeCompra")
+  produtosConsumo Produto[] @relation("ProdutoUnidadeConsumo")
+
+  @@map("unidades")
+}
+
+model UnidadeConversao {
+  id                Int      @id @default(autoincrement())
+  idUnidadeOrigem   Int?     @map("id_unidade_origem")
+  idUnidadeDestino  Int?     @map("id_unidade_destino")
+  fatorConversao    Decimal  @map("fator_conversao") @db.Decimal(10, 4)
+  descricao         String?  @db.VarChar(200)
+  ativo             Boolean  @default(true)
+
+  @@map("unidade_conversao")
+}
+
+// -------------------------------------------------------------------
+// Domínio: Grupos e Subgrupos de Produto
+// -------------------------------------------------------------------
+
+model Grupoproduto {
+  grupoprodutoid            Decimal   @id @db.Decimal(8, 0)
+  nomeGrupoproduto          String    @map("nome_grupoproduto") @db.VarChar(50)
+  filialid                  Decimal  @db.Decimal(8, 0)
+  empresaid                 Decimal  @db.Decimal(8, 0)
+  vlMetaMensalGrupoproduto  Decimal  @default(0) @map("vl_meta_mensal_grupoproduto") @db.Decimal(23, 4)
+
+  @@map("grupoproduto")
+}
+
+model Subgrupoproduto {
+  subgrupoprodutoid               Decimal  @id @db.Decimal(8, 0)
+  nomeSubgrupoproduto             String   @map("nome_subgrupoproduto") @db.VarChar(50)
+  boIpCustoSubgrupoproduto       String? @default("NAO") @map("bo_ipicusto_subgrupoproduto") @db.VarChar(3)
+  grupoprodutoid                  Decimal  @db.Decimal(8, 0)
+  ifpvid                          Decimal  @db.Decimal(8, 0)
+  vlCustoHoraProduto              Decimal  @default(0) @map("vl_custo_hora_produto") @db.Decimal(15, 4)
+  vlMetaMensalSubgrupoproduto     Decimal  @default(0) @map("vl_meta_mensal_subgrupoproduto") @db.Decimal(23, 4)
+  boVerificaMpLote                String?  @default("NAO") @map("bo_verifica_mp_lote") @db.VarChar(3)
+
+  @@map("subgrupoproduto")
+}
