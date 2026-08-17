@@ -1,0 +1,12 @@
+# Dependências
+node_modules/
+
+# Ambiente
+.env
+.env.local
+
+# Build
+dist/
+
+# Prisma local
+prisma/migrations/dev.db
